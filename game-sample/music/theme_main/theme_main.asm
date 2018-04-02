@@ -1,5 +1,12 @@
 #include "game/music/theme_main/samples.asm"
 
+;
+; Perihelium, by Ozzed
+;
+; Contrarily to the other assets of this project, this music is distributed
+; under CC-BY-SA license.
+;
+
 track_main_square1:
 .word theme_main_square1_intro
 .word theme_main_square1_sample1
