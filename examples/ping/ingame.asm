@@ -1,5 +1,6 @@
-player_a_y = $03
-player_b_y = $04
+animation_states = $059c ; $059c to $05ff
+player_a_y = animation_states+ANIMATION_STATE_OFFSET_Y_LSB
+player_b_y = animation_states+ANIMATION_STATE_LENGTH+ANIMATION_STATE_OFFSET_Y_LSB
 
 ingame_init:
 .(
@@ -27,13 +28,25 @@ lda #>nametable_data
 sta tmpfield2
 jsr draw_zipped_nametable
 
-; Place players
-lda #$78
-sta player_a_y
-sta player_b_y
+; Initialize players' animations
+ldx #ANIMATION_STATE_LENGTH*2
+copy_one_byte:
+	dex
+
+	lda player_animation_states, x
+	sta animation_states, x
+
+	cpx #0
+	bne copy_one_byte
 
 rts
 .)
+
+player_animation_states:
+; player_a
+.byt $20, $00, $78, $00, <anim_player, >anim_player, $00, $00, $00, $1f, <anim_player, >anim_player
+; player_b
+.byt $e0, $00, $78, $00, <anim_player, >anim_player, $00, $00, $20, $3f, <anim_player, >anim_player
 
 palettes_data:
 ; Background
@@ -90,31 +103,21 @@ rts
 
 draw_one_player:
 .(
-lda players_x, x
-sta tmpfield1
-lda player_a_y, x
-sta tmpfield2
-lda #<anim_player
-sta tmpfield3
-lda #>anim_player
-sta tmpfield4
-txa
-asl
-asl
-sta tmpfield5
-clc
-adc #3
-sta tmpfield6
-txa
-sta tmpfield7
-lda #0
+lda players_animation_state_addr, x
+sta tmpfield11
+lda #>animation_states
 sta tmpfield12
+lda #0
+sta tmpfield13
+sta tmpfield14
+sta tmpfield15
+sta tmpfield16
 
 jsr animation_draw
 
 rts
 
-players_x:
-.byt $20, $e0
+players_animation_state_addr:
+.byt <animation_states, <animation_states+ANIMATION_STATE_LENGTH
 .)
 .)

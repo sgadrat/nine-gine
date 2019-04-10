@@ -60,7 +60,7 @@ Animations
 
 Nine-gine allows defining multi-layers animations. It means that each 8x8 sprite composing the meta-sprite has its own Z-Index which is used by the engine to flip sprites naturally. So if your character holds his weapon in the right hand, flipping the sprite keeps it on the right hand.
 
-An animation is defined by data about meta-sprites forming the animation, then it can be drawn on screen by the *animation_draw* routine
+An animation is defined by data about meta-sprites forming the animation. It can be instanciated in memory by an animation state, the state contains pointers to the animation data, its on-screen position and a counter to know which frame to draw. An animation state can be drawn on screen by the *animation_draw* routine
 
 
 Music
@@ -92,9 +92,9 @@ The top-level directory contains the following files and sub directory:
 * *nine.asm*: buildable file, it contains links to other files and instructions to build the project
 * *nine/*: engine directory, contains nine-gine's source files, you should not have to modify it
 * *game/*: game directory, contains game-specific source files, you will write things here
-* *game-sample/*: a little game to learn from
+* *examples/*: little games to learn from
 
-As you just got a fresh repository from git, the *game/* directory is a symbolic link to the *game-sample/* directory. You can test that everything is fine by building the sample game::
+As you just got a fresh repository from git, the *game/* directory is a symbolic link to the *examples/ping/* directory. You can test that everything is fine by building the sample game::
 
 	$ xa nine.asm -C -o game.nes
 
@@ -260,15 +260,17 @@ The initialization routine is in charge of drawing the screen's background. The 
 
 The nametable in this format can be decompressed by an utility routine of Nine-gine.
 
-Each frame, the heart has to be updated. It can move or change color at any time. To be able to draw it correctly you need to store somewhere its position and a counter to know which animation frame to draw. Let's attribute some space in zero page for this data::
+Each frame, the heart has to be updated. It can move or change color at any time. To be able to draw it correctly you need to store somewhere its animation state. Let's attribute some space for this data::
 
-	heart_x = $03
-	heart_y = $04
-	heart_anim_tick = $05
+	heart_animation_state = $0550
+	heart_x = heart_animation_state+ANIMATION_STATE_OFFSET_X_LSB
+	heart_y = heart_animation_state+ANIMATION_STATE_OFFSET_Y_LSB
 
-It begins at $03 since Nine-gine uses $00 to $02. You can read about labels used by Nine-gine in file *nine/mem_labels.asm*.
+It begins at $0550 since Nine-gine does not uses it internally. You can read about labels used by Nine-gine in file *nine/mem_labels.asm*.
 
-The initialization routine is pretty simple, as the nametable is stored on Nine-gine's format it is trivial to draw::
+We also create labels *heart_x* and *heart_y* pointing to the animation position in the state, so we can easily move the heart by changing these values.
+
+The initialization routine has to draw the nametable, as it is stored on Nine-gine's format, it is trivial to draw. We also need to initialize the heart animation's state::
 
 	; Initialization routine for ingame state
 	ingame_init:
@@ -296,12 +298,21 @@ The initialization routine is pretty simple, as the nametable is stored on Nine-
 		sta tmpfield2
 		jsr draw_zipped_nametable
 
-		; Init the heart
+		; Initialize heart animation state
+		lda #<heart_animation_state
+		sta tmpfield11
+		lda #>heart_animation_state
+		sta tmpfield12
+		lda #<anim_heart
+		sta tmpfield13
+		lda #>anim_heart
+		sta tmpfield14
+		jsr animation_init_state
+
+		; Init heart's position
 		lda #$80
 		sta heart_x
 		sta heart_y
-		lda #0
-		sta heart_anim_tick
 
 		rts
 	.)
@@ -363,37 +374,20 @@ Finally, the tick routine must handle input and refresh the heart::
 		; Draw the heart
 		;
 
-		; Name parameters of animation_draw
-		param_x = tmpfield1
-		param_y = tmpfield2
-		param_animation_vector = tmpfield3
-		param_first_sprite = tmpfield5
-		param_last_sprite = tmpfield6
-		param_direction = tmpfield7
-		param_tick_number = tmpfield12
-
-		; Place parameters for animation_draw
-		lda heart_x
-		sta param_x
-		lda heart_y
-		sta param_y
-		lda #<anim_heart
-		sta param_animation_vector
-		lda #>anim_heart
-		sta param_animation_vector+1
-		lda #0
-		sta param_first_sprite
-		sta param_last_sprite
-		sta param_direction
-		lda heart_anim_tick
-		sta param_tick_number
-
-		; Draw the heart's animation
+		; Call animation_draw with its parameter
+		lda #<heart_animation_state ;
+		sta tmpfield11              ; The animation state to draw
+		lda #>heart_animation_state ;
+		sta tmpfield12              ;
+		lda #0         ;
+		sta tmpfield13 ;
+		sta tmpfield14 ; Camera position (let it as 0/0)
+		sta tmpfield15 ;
+		sta tmpfield16 ;
 		jsr animation_draw
 
-		; Save updated animation's tick number
-		lda param_tick_number
-		sta heart_anim_tick
+		; Advance animation one tick
+		jsr animation_tick
 
 		rts
 	.)
@@ -430,17 +424,29 @@ animation_draw
 ::
 
 	 Draw the current frame of an animation
-	  tmpfield1 - X position
-	  tmpfield2 - Y position
-	  tmpfield3, tmpfield4 - vector to the animation
-	  tmpfield5 - index of the first OAM sprite to use
-	  tmpfield6 - index of the last OAM sprite to use
-	  tmpfield7 - direction of the animation (0 - natural, 1 - horizontally flipped)
-	  tmpfield12 - current tick number
+	  tmpfield11, tmpfield12 - vector to the animation_state
+	  tmpfield13, tmpfield14 - camera position X (signed 16 bits)
+	  tmpfield15, tmpfield16 - camera position Y (signed 16 bits)
+	 Overwrites tmpfields 1 to 10, tmpfields 13 to 16 and all registers
 
-	 Set tmpfield12 to next tick number
-	 Overwrite all refisters and tmpfields
+animation_init_state
+--------------------
 
+::
+
+	 Initialize a memory location to be a valid animation state
+	  tmpfield11, tmpfield12 - vector to the animation state
+	  tmpfield13, tmpfield14 - vector to the animation data
+	 Overwrites registers A and Y
+
+animation_tick
+--------------
+
+::
+
+	 Advance animation's clock
+	  tmpfield11, tmpfield12 - vector to the animation_state
+	 Overwrites all registers, tmpfield3, tmpfield4, tmpfield8 and tmpfield9
 
 audio_init
 ----------
@@ -547,7 +553,7 @@ deactivate_particle_block
 
 ::
 
-	Deactivate the particle block beginning at "particle_blocks, y"
+	 Deactivate the particle block begining at "particle_blocks, y"
 
 draw_anim_frame
 ---------------
@@ -555,16 +561,16 @@ draw_anim_frame
 ::
 
 	 Draw an animation frame on screen
-	  tmpfield1 - Position X
-	  tmpfield2 - Position Y
+	  tmpfield1 - Position X LSB
+	  tmpfield2 - Position Y LSB
 	  tmpfield3, tmpfield4 - Vector pointing to the frame to draw
 	  tmpfield5 - First sprite index to use
 	  tmpfield6 - Last sprite index to use
 	  tmpfield7 - Animation's direction (0 normal, 1 flipped)
-	  tmpfield8 - X position
-	  tmpfield9 - Y position
+	  tmpfield8 - Position X MSB
+	  tmpfield9 - Position Y MSB
 
-	 Overwrites tmpfield5, tmpfield8, tmpfield10, tmpfield14, tmpfield15 and all registers
+	 Overwrites tmpfield5, tmpfield10, tmpfield13, tmpfield14, tmpfield15 and all registers
 
 draw_zipped_nametable
 ---------------------
@@ -589,7 +595,7 @@ hide_particles
 
 ::
 
-	 Hide all particles in the block beginning at "particle_blocks, y"
+	 Hide all particles in the block begining at "particle_blocks, y"
 
 keep_input_dirty
 ----------------
@@ -614,7 +620,7 @@ loop_on_particle_boxes
 ::
 
 	 Call a subroutine for each block
-	  tmpfield1, tmpfield2 - address of the subroutine to call
+	  tmpfield1, tmpfield2 - adress of the subroutine to call
 
 	  For each call, Y is the offset of the block's first byte from particle_blocks
 
@@ -624,7 +630,7 @@ loop_on_particles
 ::
 
 	 Call a subroutine for each particle in a block
-	  tmpfield1, tmpfield2 - address of the subroutine to call
+	  tmpfield1, tmpfield2 - adress of the subroutine to call
 	  Y - offset of the block's first byte from particle_blocks
 
 	  For each call, Y is the offset of the particle's first byte and

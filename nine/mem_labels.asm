@@ -74,7 +74,8 @@ nametable_buffers = $0300
 particle_blocks = $0500
 particle_block_0 = $0500
 particle_block_1 = $0520
-previous_global_game_state = $540
+previous_global_game_state = $0540
+;$0541-$05ff - unused
 ;$06xx may be used by audio engine, see "Audio engine labels"
 virtual_frame_cnt = $0700
 skip_frames_to_50hz = $0701
